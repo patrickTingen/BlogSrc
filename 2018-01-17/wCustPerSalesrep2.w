@@ -99,6 +99,10 @@ Salesrep.Rep-Name
 /* Define the widget handle for the window                              */
 DEFINE VAR C-Win AS WIDGET-HANDLE NO-UNDO.
 
+/* Definitions of handles for OCX Containers                            */
+DEFINE VARIABLE CtrlFrame AS WIDGET-HANDLE NO-UNDO.
+DEFINE VARIABLE chCtrlFrame AS COMPONENT-HANDLE NO-UNDO.
+
 /* Definitions of the field level widgets                               */
 /* Query definitions                                                    */
 &ANALYZE-SUSPEND
@@ -137,7 +141,7 @@ DEFINE FRAME DEFAULT-FRAME
     WITH 1 DOWN NO-BOX KEEP-TAB-ORDER OVERLAY 
          SIDE-LABELS NO-UNDERLINE THREE-D 
          AT COL 1 ROW 1
-         SIZE 86.2 BY 8.38 WIDGET-ID 100.
+         SIZE 86.8 BY 8.52 WIDGET-ID 100.
 
 
 /* *********************** Procedure Settings ************************ */
@@ -157,8 +161,8 @@ IF SESSION:DISPLAY-TYPE = "GUI":U THEN
   CREATE WINDOW C-Win ASSIGN
          HIDDEN             = YES
          TITLE              = "Customer per sales rep"
-         HEIGHT             = 8.33
-         WIDTH              = 86
+         HEIGHT             = 8.48
+         WIDTH              = 86.6
          MAX-HEIGHT         = 17.76
          MAX-WIDTH          = 212
          VIRTUAL-HEIGHT     = 17.76
@@ -220,6 +224,28 @@ THEN C-Win:HIDDEN = no.
  
 
 
+/* **********************  Create OCX Containers  ********************** */
+
+&ANALYZE-SUSPEND _CREATE-DYNAMIC
+
+&IF "{&OPSYS}" = "WIN32":U AND "{&WINDOW-SYSTEM}" NE "TTY":U &THEN
+
+CREATE CONTROL-FRAME CtrlFrame ASSIGN
+       FRAME           = FRAME DEFAULT-FRAME:HANDLE
+       ROW             = 4.1
+       COLUMN          = 46
+       HEIGHT          = 2.14
+       WIDTH           = 10
+       WIDGET-ID       = 4
+       HIDDEN          = yes
+       SENSITIVE       = yes.
+/* CtrlFrame OCXINFO:CREATE-CONTROL from: {F0B88A90-F5DA-11CF-B545-0020AF6ED35A} type: PSTimer */
+      CtrlFrame:MOVE-AFTER(brCustomer:HANDLE IN FRAME DEFAULT-FRAME).
+
+&ENDIF
+
+&ANALYZE-RESUME /* End of _CREATE-DYNAMIC */
+
 
 /* ************************  Control Triggers  ************************ */
 
@@ -252,13 +278,34 @@ END.
 &Scoped-define BROWSE-NAME brSalesrep
 &Scoped-define SELF-NAME brSalesrep
 &ANALYZE-SUSPEND _UIB-CODE-BLOCK _CONTROL brSalesrep C-Win
+ON MOUSE-SELECT-CLICK OF brSalesrep IN FRAME DEFAULT-FRAME
+DO:
+/*   {&OPEN-QUERY-brCustomer} */
+/*   RETURN NO-APPLY.         */
+END.
+
+/* _UIB-CODE-BLOCK-END */
+&ANALYZE-RESUME
+
+
+&ANALYZE-SUSPEND _UIB-CODE-BLOCK _CONTROL brSalesrep C-Win
 ON VALUE-CHANGED OF brSalesrep IN FRAME DEFAULT-FRAME
 DO:
-/*   ETIME(YES).                */
-/*   DO WHILE ETIME < 500: END. */
-  
-  {&OPEN-QUERY-brCustomer}
+  chCtrlFrame:PSTimer:INTERVAL = 300.
+  chCtrlFrame:PSTimer:ENABLED = TRUE.
 END.
+
+/* _UIB-CODE-BLOCK-END */
+&ANALYZE-RESUME
+
+
+&Scoped-define SELF-NAME CtrlFrame
+&ANALYZE-SUSPEND _UIB-CODE-BLOCK _CONTROL CtrlFrame C-Win OCX.Tick
+PROCEDURE CtrlFrame.PSTimer.Tick .
+{&OPEN-QUERY-brCustomer}
+  chCtrlFrame:PSTimer:ENABLED = FALSE.
+
+END PROCEDURE.
 
 /* _UIB-CODE-BLOCK-END */
 &ANALYZE-RESUME
@@ -301,6 +348,44 @@ END.
 
 /* **********************  Internal Procedures  *********************** */
 
+&ANALYZE-SUSPEND _UIB-CODE-BLOCK _PROCEDURE control_load C-Win  _CONTROL-LOAD
+PROCEDURE control_load :
+/*------------------------------------------------------------------------------
+  Purpose:     Load the OCXs    
+  Parameters:  <none>
+  Notes:       Here we load, initialize and make visible the 
+               OCXs in the interface.                        
+------------------------------------------------------------------------------*/
+
+&IF "{&OPSYS}" = "WIN32":U AND "{&WINDOW-SYSTEM}" NE "TTY":U &THEN
+DEFINE VARIABLE UIB_S    AS LOGICAL    NO-UNDO.
+DEFINE VARIABLE OCXFile  AS CHARACTER  NO-UNDO.
+
+OCXFile = SEARCH( "wCustPerSalesrep2.wrx":U ).
+IF OCXFile = ? THEN
+  OCXFile = SEARCH(SUBSTRING(THIS-PROCEDURE:FILE-NAME, 1,
+                     R-INDEX(THIS-PROCEDURE:FILE-NAME, ".":U), "CHARACTER":U) + "wrx":U).
+
+IF OCXFile <> ? THEN
+DO:
+  ASSIGN
+    chCtrlFrame = CtrlFrame:COM-HANDLE
+    UIB_S = chCtrlFrame:LoadControls( OCXFile, "CtrlFrame":U)
+    CtrlFrame:NAME = "CtrlFrame":U
+  .
+  RUN initialize-controls IN THIS-PROCEDURE NO-ERROR.
+END.
+ELSE MESSAGE "wCustPerSalesrep2.wrx":U SKIP(1)
+             "The binary control file could not be found. The controls cannot be loaded."
+             VIEW-AS ALERT-BOX TITLE "Controls Not Loaded".
+
+&ENDIF
+
+END PROCEDURE.
+
+/* _UIB-CODE-BLOCK-END */
+&ANALYZE-RESUME
+
 &ANALYZE-SUSPEND _UIB-CODE-BLOCK _PROCEDURE disable_UI C-Win  _DEFAULT-DISABLE
 PROCEDURE disable_UI :
 /*------------------------------------------------------------------------------
@@ -331,6 +416,7 @@ PROCEDURE enable_UI :
                These statements here are based on the "Other 
                Settings" section of the widget Property Sheets.
 ------------------------------------------------------------------------------*/
+  RUN control_load.
   ENABLE brSalesrep brCustomer 
       WITH FRAME DEFAULT-FRAME IN WINDOW C-Win.
   {&OPEN-BROWSERS-IN-QUERY-DEFAULT-FRAME}
